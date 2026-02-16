@@ -52,3 +52,20 @@ pip install -r requirements.txt
 - **Sorting & filtering helpers:** utility methods provide convenient time-based ordering and completion filtering for UI views and previews.
 
 These features prioritize clarity and speed for small-to-medium task sets; future work can add global constraint solving and richer recurrence expansion.
+
+## Testing PawPal+
+
+Run the automated test suite:
+
+```bash
+python -m pytest
+```
+
+What the tests cover:
+
+- **Sorting Correctness:** tasks are ordered by representative time (deadline, preferred window start, fallback midnight).
+- **Recurrence Logic:** completing a recurring `daily` or `weekly` task creates the next occurrence (`due_date`) and appends it to the pet and owner.
+- **Conflict Detection:** overlapping scheduled intervals are detected and reported as warnings.
+- **Owner Preferences & Feasibility:** owner `allows()` and `Pet.adjust_duration()` affect selection and scheduling decisions.
+
+Confidence Level: ★★★★☆ (4/5) — tests pass locally for the core behaviors covered; broader integration and UI tests would increase confidence.
