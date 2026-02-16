@@ -35,6 +35,14 @@ Added Owner.tasks and Pet.owner to make ownership explicit so tasks can be queri
 
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
+ 
+- Greedy-first scheduling vs. global optimality: the scheduler uses a simple greedy
+	ranking and first-fit placement strategy and performs lightweight conflict detection
+	afterwards instead of running an expensive global optimizer that guarantees no
+	overlaps. This keeps the implementation simple and fast for the MVP, but it may
+	produce suboptimal schedules or require manual conflict resolution for edge cases.
+	For a consumer app with short planning horizons (a single day) this tradeoff
+	favors responsiveness and easier reasoning about scheduler behavior.
 
 ---
 

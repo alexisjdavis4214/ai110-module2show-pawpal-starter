@@ -22,6 +22,7 @@ class Task:
 	notes: Optional[str] = None
 	enabled: bool = True
 	completed: bool = False
+	due_date: Optional[datetime.date] = None
 
 	def score(self, owner: "Owner", pet: "Pet") -> float:
 		"""Compute task score for scheduling."""
@@ -42,16 +43,63 @@ class Task:
 		"""Return True if task fits within remaining minutes and is enabled."""
 		return self.enabled and (self.duration <= remaining_minutes)
 
-	def mark_complete(self) -> None:
-		"""Mark this task as completed."""
+	def mark_complete(self, owner: Optional["Owner"] = None, pet: Optional["Pet"] = None, create_next: bool = True) -> Optional["Task"]:
+		"""Mark this task as completed and optionally create next occurrence for recurring tasks.
+
+		If `frequency` is 'daily' or 'weekly' and `create_next` is True, a new Task instance
+		is created with `due_date` set to today + 1 day (or +7 days for weekly) and appended
+		to the given `pet` and `owner` when provided. Returns the new Task or None.
+		"""
 		self.completed = True
+		if not create_next:
+			return None
+		if self.frequency not in ("daily", "weekly"):
+			return None
+		# compute next due date
+		delta_days = 1 if self.frequency == "daily" else 7
+		next_date = datetime.date.today() + datetime.timedelta(days=delta_days)
+		# create a new task instance for the next occurrence
+		new_id = f"{self.task_id}-next-{next_date.isoformat()}"
+		new_task = Task(
+			task_id=new_id,
+			name=self.name,
+			category=self.category,
+			duration=self.duration,
+			priority=self.priority,
+			preferred_window=self.preferred_window,
+			deadline_time=self.deadline_time,
+			frequency=self.frequency,
+			notes=self.notes,
+			enabled=self.enabled,
+			completed=False,
+			due_date=next_date,
+		)
+		# append to pet and owner if provided
+		if pet is not None:
+			pet.add_task(new_task)
+		if owner is not None:
+			owner.tasks.append(new_task)
+		return new_task
 
 	def requires_exact_time(self) -> bool:
 		"""Return True when the task requires an exact time (has a deadline)."""
 		return bool(self.deadline_time)
 
 	def expand_occurrences(self, base_date: Optional[datetime.date] = None) -> List[TimeRange]:
-		"""Expand frequency into concrete time ranges for planning (sketch)."""
+		"""Return candidate time ranges for this task based on frequency and preferences.
+
+		This is an MVP helper used by the planner to translate a task's abstract
+		`frequency` or `preferred_window` into concrete scheduling slots. Behavior:
+		- If `preferred_window` is set, that single window is returned.
+		- If `frequency` is of the form '<n>x-day' (e.g. '2x-day'), returns `n`
+		  evenly spaced slots between 07:00 and 21:00 on `base_date` (or today).
+
+		Args:
+			base_date: Optional date used to compute concrete datetimes for slots.
+
+		Returns:
+			List[TimeRange]: a list of (start_time, end_time) candidate slots.
+		"""
 		# MVP: return preferred_window if present
 		if self.preferred_window:
 			return [self.preferred_window]
@@ -184,7 +232,21 @@ class Scheduler:
 	score_cache: Dict[str, float] = field(default_factory=dict)
 
 	def get_score_cached(self, task: Task, owner: Owner, pet: Pet) -> float:
-		"""Return a cached score for a task or compute and cache it."""
+		"""Return a cached numeric score for `task`, computing and caching if needed.
+
+		The planner uses this method to avoid repeatedly calling potentially
+		expensive scoring logic during a single planning run. The cache is keyed by
+		`task.task_id` and is stored on the `Scheduler` instance for the duration
+		of the planning operation.
+
+		Args:
+			task: Task to score.
+			owner: Owner used to evaluate preferences/constraints.
+			pet: Pet used to evaluate recommendations and adjustments.
+
+		Returns:
+			float: computed score (higher => more important to schedule).
+		"""
 		key = task.task_id
 		if key in self.score_cache:
 			return self.score_cache[key]
@@ -194,14 +256,156 @@ class Scheduler:
 
 
 	def rank_tasks(self, owner: Owner, pet: Pet, tasks: List[Task]) -> List[Task]:
-		"""Rank tasks by cached score (descending)."""
+		"""Rank the provided `tasks` by descending score using a per-run cache.
+
+		Scores are retrieved via `get_score_cached`. This method returns a new list
+		of tasks sorted from highest to lowest priority according to the computed
+		score. It does not modify the input list.
+
+		Args:
+			owner: Owner context for scoring.
+			pet: Pet context for scoring.
+			tasks: List of tasks to rank.
+
+		Returns:
+			List[Task]: tasks sorted by descending score.
+		"""
 		# compute and sort by cached score (desc)
 		scored = [(self.get_score_cached(t, owner, pet), t) for t in tasks]
 		scored.sort(key=lambda x: x[0], reverse=True)
 		return [t for _, t in scored]
 
+	def sort_by_time(self, tasks: List[Task]) -> List[Task]:
+		"""Return tasks sorted by a representative time used for time-based views.
+
+		Representative time is chosen in this priority order: `deadline_time`,
+		`preferred_window` start, otherwise midnight. This helper is intended for
+		rendering or simple time-based ordering and does not perform placement or
+		check availability.
+
+		Args:
+			tasks: tasks to sort.
+
+		Returns:
+			List[Task]: tasks ordered earliest-to-latest by representative time.
+		"""
+		def task_time(t: Task) -> Time:
+			if t.deadline_time:
+				return t.deadline_time
+			if t.preferred_window:
+				return t.preferred_window[0]
+			return datetime.time(0, 0)
+
+		return sorted(tasks, key=lambda t: task_time(t))
+
+	def filter_tasks(self, tasks: List[Task], completed: Optional[bool] = None) -> List[Task]:
+		"""Filter `tasks` by completion status.
+
+		If `completed` is None, returns a shallow copy of the input list. Passing
+	ture/False returns only tasks that match the completion predicate.
+
+		Args:
+			tasks: list of tasks to filter.
+			completed: Optional bool indicating desired completion state.
+
+		Returns:
+			List[Task]: filtered list.
+		"""
+		if completed is None:
+			return list(tasks)
+		return [t for t in tasks if bool(t.completed) is bool(completed)]
+
+	def filter_tasks_by_pet(self, pets: Dict[str, "Pet"], pet_name: Optional[str] = None, completed: Optional[bool] = None) -> List[Task]:
+		"""Collect tasks from the provided `pets` mapping and optionally filter.
+
+		If `pet_name` is provided the function returns tasks for that pet only;
+		otherwise tasks from all pets in the mapping are aggregated.
+
+		Args:
+			pets: mapping of pet names to `Pet` objects.
+			pet_name: optional key name to select a single pet.
+			completed: Optional completion filter passed to `filter_tasks`.
+
+		Returns:
+			List[Task]: collected (and filtered) tasks.
+		"""
+		collected: List[Task] = []
+		if pet_name:
+			pet = pets.get(pet_name)
+			if not pet:
+				return []
+			collected = list(pet.tasks)
+		else:
+			for pet in pets.values():
+				collected.extend(pet.tasks)
+		return self.filter_tasks(collected, completed=completed)
+
+	def detect_conflicts(self, scheduled: List[Tuple[str, ScheduledTask]]) -> List[str]:
+		"""Detect overlapping scheduled tasks and return human-readable warnings.
+
+		This performs a simple pairwise comparison of scheduled intervals (assumed
+		to be on the same day). Overlap is determined by the standard interval
+		intersection test (start_a < end_b and start_b < end_a).
+
+		Limitations:
+		- Assumes all `ScheduledTask` times are on the same calendar day (today).
+		- Does not attempt to resolve conflicts; only reports them.
+
+		Args:
+			scheduled: list of tuples (pet_name, ScheduledTask).
+
+		Returns:
+			List[str]: warning messages describing each detected overlap.
+		"""
+		warnings: List[str] = []
+		# convert to events with datetimes for today
+		events = []
+		today = datetime.date.today()
+		for pet_name, s in scheduled:
+			start_dt = datetime.datetime.combine(today, s.start)
+			end_dt = datetime.datetime.combine(today, s.end)
+			events.append((pet_name, s.task, start_dt, end_dt))
+
+		# compare pairs
+		n = len(events)
+		for i in range(n):
+			pet_i, task_i, si, ei = events[i]
+			for j in range(i + 1, n):
+				pet_j, task_j, sj, ej = events[j]
+				# overlap if start < other_end and other_start < end
+				if (si < ej) and (sj < ei):
+					msg = f"Conflict: {pet_i}:{task_i.name} ({si.time().strftime('%H:%M')}-{ei.time().strftime('%H:%M')}) overlaps {pet_j}:{task_j.name} ({sj.time().strftime('%H:%M')}-{ej.time().strftime('%H:%M')})"
+					warnings.append(msg)
+		return warnings
+
 	def generate_plan(self, owner: Owner, pet: Pet, tasks: List[Task]) -> Dict[str, Any]:
-		"""Generate a greedy schedule plan for the given owner, pet, and tasks."""
+		"""Generate a greedy schedule for `tasks` given `owner` and `pet` context.
+
+		This is an intentionally lightweight, first-fit scheduler designed for
+		interactive UIs and small task sets. It ranks tasks by score, then iterates
+		over them selecting the highest-scoring feasible task that fits in the
+		owner's remaining time and simple owner/pet constraints. For each selected
+		task a `ScheduledTask` with a concrete start/end time is created using the
+		first matching owner time window or a fallback time.
+
+		Behavior notes:
+		- The scheduler is greedy and does not perform global backtracking or
+		  constraint solving. It's fast but may produce suboptimal placements.
+		- Selected tasks reduce the local `remainder` time but do not persistently
+		  modify the `Owner` object (caller may choose to persist changes).
+
+		Args:
+			owner: Owner providing available minutes and preferred windows.
+			pet: Pet used for duration adjustments and recommendation checks.
+			tasks: Candidate tasks to schedule.
+
+		Returns:
+			Dict[str, Any]: keys:
+				- 'scheduled': List[ScheduledTask]
+				- 'skipped': List[Tuple[Task, str]] (task and reason)
+				- 'total_minutes': int minutes scheduled
+				- 'explanation': List[str] (when `self.explain` is True)
+		"""
 		# simple greedy planning using durations and preferred windows
 		plan_selected: List[ScheduledTask] = []
 		skipped: List[Tuple[Task, str]] = []
@@ -249,7 +453,22 @@ class Scheduler:
 
 
 	def select_tasks(self, owner: Owner, pet: Pet, ranked: List[Task]) -> Tuple[List[Task], List[Tuple[Task, str]]]:
-		"""Select feasible tasks from a ranked list given owner's available time."""
+		"""Select a subset of `ranked` tasks that fit within the owner's time.
+
+		This convenience method performs feasibility checks similar to
+		`generate_plan` but returns the selected `Task` objects rather than
+		concrete `ScheduledTask` placements. It is useful for previews or when
+		time-only filtering is required.
+
+		Args:
+			owner: Owner providing available minutes.
+			pet: Pet providing duration adjustments and recommendations.
+			ranked: tasks sorted by preference/score.
+
+		Returns:
+			Tuple[List[Task], List[Tuple[Task, str]]]: selected tasks and skipped
+			(plus reasons).
+		"""
 		# Convenience wrapper for generating selected task list without times
 		selected: List[Task] = []
 		skipped: List[Tuple[Task, str]] = []
@@ -273,7 +492,20 @@ class Scheduler:
 		return selected, skipped
 
 	def build_explanations(self, selected: List[Task], skipped: List[Tuple[Task, str]]) -> List[str]:
-		"""Return human-readable explanations for selected and skipped tasks."""
+		"""Create human-readable explanation lines for a planning run.
+
+		Used to provide debug or UI-facing explanations when `self.explain` is
+		enabled. The output includes counts and brief itemized reasons for
+		skipped tasks.
+
+		Args:
+			selected: list of selected Task objects.
+			skipped: list of (Task, reason) tuples describing why tasks were
+			skipped.
+
+		Returns:
+			List[str]: explanation lines suitable for display or logging.
+		"""
 		lines: List[str] = []
 		lines.append(f"Selected {len(selected)} tasks")
 		for t in selected:
