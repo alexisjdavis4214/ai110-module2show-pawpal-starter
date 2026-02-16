@@ -2,15 +2,25 @@
 
 ## 1. System Design
 
+- core actions: enter owner/pet info, add/edit tasks, see suggested plan
+
 **a. Initial design**
 
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+Owner: represents a human user with available minutes, preferred time windows, and preference rules; exposes methods to report available minutes, check whether a task is allowed, compute valid windows, and update remaining time.
+Pet: models an animal with species/age/activity and health notes; provides per-pet adjustments (e.g., adjust task duration), safety/fit checks, and optional defaults.
+Task: holds scheduling-friendly metadata (id, category, duration, priority, preferred window, deadline, frequency, enabled, notes) and small decision APIs (score, feasibility, requires_exact_time).
+Scheduler: encapsulates a strategy and weighting configuration; ranks tasks, selects a feasible set given owner/pet constraints, builds explanations, and outputs a plan (scheduled, skipped, total minutes, explanation).
+Relationships: Owner → Pet (owns), Pet → Task (has/defaults); Scheduler depends on Owner, Pet, and Task to generate plans.
+
 **b. Design changes**
 
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
+
+Added Owner.tasks and Pet.owner to make ownership explicit so tasks can be queried/filtered per-owner and per-pet constraints (simplifies multi-pet/multi-owner flows).
 
 ---
 
