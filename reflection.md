@@ -31,7 +31,7 @@ Added Owner.tasks and Pet.owner to make ownership explicit so tasks can be queri
 - What constraints does your scheduler consider (for example: time, priority, preferences)?
 - How did you decide which constraints mattered most?
 
-The scheduler considers owner available time, task priority, task deadlines, owner preferences (e.g., no late walks), and pet suitability. I prioritized time and priority first because those are the core constraints a busy owner faces; preferences and pet fit came second since they refine the plan but don't block it.
+The scheduler considers owner available time, task priority, task deadlines, owner preferences (like no late walks), and pet suitability. I prioritized time and priority first because those are the core constraints a busy owner faces, preferences and pet fit came second since they refine the plan but don't block it.
 
 **b. Tradeoffs**
 
@@ -55,14 +55,14 @@ The scheduler considers owner available time, task priority, task deadlines, own
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
 - What kinds of prompts or questions were most helpful?
 
-I used AI for initial UML brainstorming, generating test cases, and drafting the README features section. The most helpful prompts were specific ones that asked for code examples or described exact requirements; vague questions about "how to schedule" produced less actionable responses.
+I used AI for initial UML brainstorming, generating test cases, and drafting the README features section. The most helpful prompts were specific ones that asked for code examples or described exact requirements. Vague questions about "how to schedule" produced less actionable responses.
 
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
 - How did you evaluate or verify what the AI suggested?
 
-AI suggested a complex backtracking scheduler, but I rejected it because it was overkill for a single-day plan and harder to debug. I tested my simpler greedy approach against manual test cases and confirmed it handled the core scenarios correctly.
+AI suggested a complex backtracking scheduler, but I rejected it because it was overkill for a single day plan and harder to debug. I tested my simpler greedy approach against manual test cases and confirmed it handled the core scenarios correctly.
 
 ---
 
@@ -73,7 +73,7 @@ AI suggested a complex backtracking scheduler, but I rejected it because it was 
 - What behaviors did you test?
 - Why were these tests important?
 
-I tested sorting correctness, recurrence task creation, conflict detection, and owner preference filtering. These tests were critical because they verify the core scheduling decisions—if these fail, the whole planner breaks.
+I tested sorting correctness, recurrence task creation, conflict detection, and owner preference filtering. These tests were critical because they verify the core scheduling decisions if these fail, the whole planner breaks.
 
 **b. Confidence**
 
@@ -96,10 +96,10 @@ I'm most satisfied with the clean separation of concerns—Task, Owner, Pet, and
 
 - If you had another iteration, what would you improve or redesign?
 
-I'd add persistent storage (a database), richer recurrence rules (e.g., every other day), and a smarter conflict resolver that can swap or reschedule tasks instead of just warning.
+I'd add persistent storage (a database), richer recurrence rules, and a smarter conflict resolver that can swap or reschedule tasks instead of just warning.
 
 **c. Key takeaway**
 
 - What is one important thing you learned about designing systems or working with AI on this project?
 
-I learned that simple, explainable algorithms are often better than complex ones for MVP products—the scheduler is faster to debug and easier for users to understand and predict.
+I learned that simple, explainable algorithms are often better than complex ones for MVP products, the scheduler is faster to debug and easier for users to understand and predict.
